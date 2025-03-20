@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
+
 import nxppy
 import time
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify
 import sqlite3
 import threading
 
@@ -100,69 +101,81 @@ def add_error():
     return jsonify({"error": "Aucun exercice en cours ou badge non détecté"}), 400
 
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
 def home():
-    if request.method == 'POST':
-        badge_uid = request.form['badge_uid']
-        with get_db() as db:
-            cursor = db.execute("SELECT * FROM exercises WHERE badge_uid = ?", (badge_uid,))
-            exercise = cursor.fetchone()
-        
-        if exercise:
-            return render_template_string("""
-            <html>
-                <body>
-                    <h1>Page d'Exercices NFC</h1>
-                    <h3>Exercice pour le badge {{ badge_uid }}</h3>
-                    <table border="1">
-                        <tr>
-                            <th>ID</th>
-                            <th>Répétitions</th>
-                            <th>Erreurs</th>
-                            <th>Début</th>
-                            <th>Fin</th>
-                        </tr>
-                        <tr>
-                            <td>{{ exercise[0] }}</td>
-                            <td>{{ exercise[2] }}</td>
-                            <td>{{ exercise[3] }}</td>
-                            <td>{{ exercise[4] }}</td>
-                            <td>{{ exercise[5] }}</td>
-                        </tr>
-                    </table>
-                    <br><br>
-                    <form method="post">
-                        <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
-                        <button type="submit">Soumettre</button>
-                    </form>
-                </body>
-            </html>
-            """, badge_uid=badge_uid, exercise=exercise)
-        else:
-            return render_template_string("""
-            <html>
-                <body>
-                    <h1>Page d'Exercices NFC</h1>
-                    <p>Aucun exercice trouvé pour le badge {{ badge_uid }}</p>
-                    <form method="post">
-                        <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
-                        <button type="submit">Soumettre</button>
-                    </form>
-                </body>
-            </html>
-            """, badge_uid=badge_uid)
+    # Serve the frontend with the form to input the badge UID
+    return """
+    <html>
+        <body>
+            <h1>Page d'Exercices NFC</h1>
+            <form action="/badge" method="POST" id="badgeForm">
+                <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
+                <button type="submit">Soumettre</button>
+            </form>
+            <div id="exerciseDetails"></div>
+            <script>
+                // Fetch form data when submitted and display the result
+                document.getElementById("badgeForm").addEventListener("submit", async function(event) {
+                    event.preventDefault();
+                    let formData = new FormData(this);
+                    let response = await fetch("/badge", {
+                        method: "POST",
+                        body: formData
+                    });
+                    let result = await response.json();
+                    displayExercise(result);
+                });
+
+                function displayExercise(data) {
+                    const detailsDiv = document.getElementById("exerciseDetails");
+                    if (data.error) {
+                        detailsDiv.innerHTML = "<p>" + data.error + "</p>";
+                    } else {
+                        detailsDiv.innerHTML = `
+                            <h3>Exercice pour le badge ${data.badge_uid}</h3>
+                            <table border="1">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Répétitions</th>
+                                    <th>Erreurs</th>
+                                    <th>Début</th>
+                                    <th>Fin</th>
+                                </tr>
+                                <tr>
+                                    <td>${data.exercise[0]}</td>
+                                    <td>${data.exercise[2]}</td>
+                                    <td>${data.exercise[3]}</td>
+                                    <td>${data.exercise[4]}</td>
+                                    <td>${data.exercise[5]}</td>
+                                </tr>
+                            </table>
+                        `;
+                    }
+                }
+            </script>
+        </body>
+    </html>
+    """
+
+
+@app.route('/badge', methods=['POST'])
+def handle_badge():
+    badge_uid = request.form['badge_uid']
+    
+    with get_db() as db:
+        cursor = db.execute("SELECT * FROM exercises WHERE badge_uid = ?", (badge_uid,))
+        exercise = cursor.fetchone()
+
+    if exercise:
+        return jsonify({
+            "badge_uid": badge_uid,
+            "exercise": exercise
+        })
     else:
-        return """
-        <html>
-            <body>
-                <h1>Page d'Exercices NFC</h1>
-                <form method="post">
-                    <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
-                    <button type="submit">Soumettre</button>
-                </form>
-            </body>
-        </html>
-        """
+        return jsonify({
+            "error": f"Aucun exercice trouvé pour le badge {badge_uid}"
+        })
+
 
 # Initialisation de la base de données
 init_db()
