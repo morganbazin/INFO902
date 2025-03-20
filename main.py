@@ -63,7 +63,7 @@ def listen_for_badges():
                 exercise_in_progress = True
                 print("Exercice commencé pour le badge: {}".format(uid))                # Récupérer ou créer l'exercice
                 exercise = get_or_create_exercise(uid)
-                time.sleep(1)
+                time.sleep(5)
             else:
                 with get_db() as db:
 
