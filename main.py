@@ -74,7 +74,7 @@ def listen_for_badges():
                     exercise_in_progress = False
                     print("Exercice terminé")
 
-@app.route('/repetition', methods=['POST'])
+@app.route('/repetition', methods=['GET'])
 def add_repetition():
     global exercise_in_progress, current_uid
     if exercise_in_progress and current_uid:
@@ -87,7 +87,7 @@ def add_repetition():
         return jsonify({"message": "Répétition ajoutée avec succès"}), 200
     return jsonify({"error": "Aucun exercice en cours ou badge non détecté"}), 400
 
-@app.route('/erreurmvt', methods=['POST'])
+@app.route('/erreurmvt', methods=['GET'])
 def add_error():
     global exercise_in_progress, current_uid
     if exercise_in_progress and current_uid:
