@@ -114,7 +114,8 @@ def home():
 init_db()
 
 # Lancer un thread pour l'écoute des badges
-thread = threading.Thread(target=listen_for_badges, daemon=True)
+thread = threading.Thread(target=listen_for_badges)
+thread.setDaemon(True)  # Manually set the thread as a daemon
 thread.start()
 
 if __name__ == '__main__':
