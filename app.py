@@ -1,91 +1,139 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import cv2
 import numpy as np
 import mediapipe as mp
-from gtts import gTTS
-from playsound import playsound
-import os
+import time
 import math
+import os
+import threading
+from gtts import gTTS
+from pydub import AudioSegment
+from pydub.playback import play
 
-app = Flask(__name__)
-
-# Configuration CORS pour accepter les requêtes de l'application front-end
-CORS(app, resources={r"/*": {"origins": ["http://localhost:5173", "http://localhost:5174"]}}, supports_credentials=True)
-
+mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
-pose = mp_pose.Pose()
 
-def calculer_angle(a, b, c):
+# Verrou pour s'assurer qu'une seule annonce vocale est en cours
+speech_lock = threading.Lock()
+last_posture_time = 0  # Temps de la dernière posture stable
+STABILISATION_TIME = 2  # Temps en secondes avant d'annoncer une posture
+
+def get_camera_index():
+    """Essaie de trouver la webcam en testant plusieurs index."""
+    for i in range(5):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            print(f"Caméra trouvée à l'index {i}")
+            cap.release()
+            return i
+    return 0
+
+def angle_btn_3points(p1, p2, p3):
     """Calcule l'angle entre trois points."""
-    vecteur_ab = np.array([b.x - a.x, b.y - a.y])
-    vecteur_bc = np.array([c.x - b.x, c.y - b.y])
+    p1, p2, p3 = np.array(p1), np.array(p2), np.array(p3)
+    radians = np.arctan2(p3[1] - p2[1], p3[0] - p2[0]) - np.arctan2(p1[1] - p2[1], p1[0] - p2[0])
+    angle = np.abs(radians * 180.0 / np.pi)
+    return angle if angle <= 180 else 360 - angle
 
-    produit_scalaire = np.dot(vecteur_ab, vecteur_bc)
-    norme_ab = np.linalg.norm(vecteur_ab)
-    norme_bc = np.linalg.norm(vecteur_bc)
+def analyser_posture(landmarks):
+    """Analyse la posture et détecte un squat."""
+    kp = mp_pose.PoseLandmark
+    angles = {}
 
-    if norme_ab == 0 or norme_bc == 0:
-        return None  # Évite la division par zéro
+    for (name, p1, p2, p3) in [
+        ("HANCHE_GAUCHE", kp.LEFT_SHOULDER, kp.LEFT_HIP, kp.LEFT_KNEE),
+        ("HANCHE_DROITE", kp.RIGHT_SHOULDER, kp.RIGHT_HIP, kp.RIGHT_KNEE),
+        ("GENOUX_GAUCHE", kp.LEFT_HIP, kp.LEFT_KNEE, kp.LEFT_ANKLE),
+        ("GENOUX_DROIT", kp.RIGHT_HIP, kp.RIGHT_KNEE, kp.RIGHT_ANKLE),
+        ("DOS", kp.LEFT_HIP, kp.RIGHT_HIP, kp.RIGHT_SHOULDER)
+    ]:
+        angles[name] = angle_btn_3points(
+            [landmarks[p1.value].x, landmarks[p1.value].y],
+            [landmarks[p2.value].x, landmarks[p2.value].y],
+            [landmarks[p3.value].x, landmarks[p3.value].y]
+        )
 
-    cos_theta = produit_scalaire / (norme_ab * norme_bc)
-    angle = math.degrees(math.acos(np.clip(cos_theta, -1.0, 1.0)))
-    return angle
+    est_en_squat = angles["GENOUX_GAUCHE"] < 120 and angles["GENOUX_DROIT"] < 120
+    posture = "Bonne posture" if angles["GENOUX_GAUCHE"] > 90 and angles["GENOUX_DROIT"] > 90 and angles["DOS"] > 140 else "Mauvaise posture"
 
-def analyser_posture(image):
-    """Analyse la posture pour un squat."""
-    results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    return est_en_squat, posture
 
-    if not results.pose_landmarks:
-        return "Posture non détectée, essaie de te placer bien face à la caméra."
+def synthese_vocale(message):
+    """Exécute la synthèse vocale dans un thread séparé avec verrouillage."""
+    def _speak():
+        with speech_lock:
+            audio_path = "feedback.mp3"
+            gTTS(text=message, lang='fr', slow=False).save(audio_path)
+            play(AudioSegment.from_file(audio_path))
+            os.remove(audio_path)
 
-    landmarks = results.pose_landmarks.landmark
+    threading.Thread(target=_speak, daemon=True).start()
 
-    shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value]
-    hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP.value]
-    knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value]
+def test_image(image, posture_state, dernier_message, last_posture_time):
+    """Effectue l'analyse de posture et gère l'état avec stabilisation avant synthèse vocale."""
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
+        results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
-    # Calcul de l'angle dos-hanche-genou
-    angle_dos = calculer_angle(shoulder, hip, knee)
+    current_time = time.time()
 
-    if angle_dos is None:
-        return "Impossible de détecter l'angle correctement."
+    if results.pose_landmarks:
+        squat_detecte, posture_qualite = analyser_posture(results.pose_landmarks.landmark)
 
-    # Définition des seuils ajustés pour un squat correct
-    print(f"Angle détecté: {angle_dos:.2f}°")
+        if posture_state == "debout" and squat_detecte:
+            posture_state = "exercice"
+        elif posture_state == "exercice":
+            posture_state = "analyse"
+        elif posture_state == "analyse" and not squat_detecte:
+            posture_state = "debout"
 
-    if angle_dos > 100:  # Trop droit
-        message = "Incline-toi légèrement vers l'avant pour un squat plus efficace."
-    elif 85 <= angle_dos <= 100:  # Squat optimal
-        message = "Bonne posture, continue comme ça !"
-    else:  # Trop courbé
-        message = "Attention, ton dos est trop courbé, redresse-toi légèrement."
+        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-    print(f"Résultat : {message}")
+        cv2.putText(image, f"Etat: {posture_state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
 
-    # Synthèse vocale pour donner un retour audio
-    audio = gTTS(text=message, lang='fr', slow=False)
-    audio_path = "feedback.mp3"
-    audio.save(audio_path)
-    playsound(audio_path)
-    os.remove(audio_path)
+        if posture_state == "analyse":
+            cv2.putText(image, f"Posture: {posture_qualite}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if posture_qualite == "Bonne posture" else (0, 0, 255), 2, cv2.LINE_AA)
 
-    return message
+            # 🔄 Vérification de la stabilisation avant l'annonce
+            if posture_qualite == dernier_message:
+                if current_time - last_posture_time > STABILISATION_TIME and not speech_lock.locked():
+                    synthese_vocale(f"Vous avez {posture_qualite}")
+                    last_posture_time = current_time  # Mise à jour du temps de stabilisation
+            else:
+                last_posture_time = current_time  # Réinitialiser le temps si la posture change
+                dernier_message = posture_qualite
 
-@app.route('/upload', methods=['POST'])
-def upload_image():
-    """Traite une image envoyée et analyse la posture."""
-    if not request.data:
-        return jsonify({"error": "Aucune image reçue"}), 400
+    return image, posture_state, dernier_message, last_posture_time
 
-    img_data = np.frombuffer(request.data, np.uint8)
-    frame = cv2.imdecode(img_data, cv2.IMREAD_COLOR)
+def demarrer_camera():
+    """Capture vidéo et analyse la posture en temps réel avec stabilisation avant synthèse vocale."""
+    camera_index = get_camera_index()
+    cap = cv2.VideoCapture(camera_index)
 
-    if frame is None:
-        return jsonify({"error": "Image invalide"}), 400
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+    cap.set(cv2.CAP_PROP_FPS, 30)
 
-    message = analyser_posture(frame)
-    return jsonify({"message": message}), 200
+    frame_count = 0
+    posture_state = "debout"
+    dernier_message = ""
+    last_posture_time = time.time()  # Temps de stabilisation
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            print("Erreur : Impossible de capturer l'image.")
+            break
+
+        frame_count += 1
+
+        if frame_count % 2 == 0:  # Traite une image sur 2 pour améliorer la fluidité
+            frame, posture_state, dernier_message, last_posture_time = test_image(frame, posture_state, dernier_message, last_posture_time)
+            cv2.imshow("Analyse de squat", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5675, debug=True)
+    demarrer_camera()
