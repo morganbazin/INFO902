@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import nxppy
 import time
 from flask import Flask, request, jsonify, render_template_string
