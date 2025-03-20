@@ -131,25 +131,21 @@ def home():
                     if (data.error) {
                         detailsDiv.innerHTML = "<p>" + data.error + "</p>";
                     } else {
-                        detailsDiv.innerHTML = `
-                            <h3>Exercice pour le badge ${data.badge_uid}</h3>
-                            <table border="1">
+                        let exerciseHtml = '<h3>Exercices pour le badge ' + data.badge_uid + '</h3>';
+                        exerciseHtml += '<table border="1"><tr><th>ID</th><th>Répétitions</th><th>Erreurs</th><th>Début</th><th>Fin</th></tr>';
+                        data.exercises.forEach(exercise => {
+                            exerciseHtml += `
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Répétitions</th>
-                                    <th>Erreurs</th>
-                                    <th>Début</th>
-                                    <th>Fin</th>
+                                    <td>${exercise[0]}</td>
+                                    <td>${exercise[2]}</td>
+                                    <td>${exercise[3]}</td>
+                                    <td>${exercise[4]}</td>
+                                    <td>${exercise[5]}</td>
                                 </tr>
-                                <tr>
-                                    <td>${data.exercise[0]}</td>
-                                    <td>${data.exercise[2]}</td>
-                                    <td>${data.exercise[3]}</td>
-                                    <td>${data.exercise[4]}</td>
-                                    <td>${data.exercise[5]}</td>
-                                </tr>
-                            </table>
-                        `;
+                            `;
+                        });
+                        exerciseHtml += '</table>';
+                        detailsDiv.innerHTML = exerciseHtml;
                     }
                 }
             </script>
@@ -164,12 +160,12 @@ def handle_badge():
     
     with get_db() as db:
         cursor = db.execute("SELECT * FROM exercises WHERE badge_uid = ?", (badge_uid,))
-        exercise = cursor.fetchone()
+        exercises = cursor.fetchall()
 
-    if exercise:
+    if exercises:
         return jsonify({
             "badge_uid": badge_uid,
-            "exercise": exercise
+            "exercises": exercises
         })
     else:
         return jsonify({
