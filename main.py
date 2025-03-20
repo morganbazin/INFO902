@@ -2,7 +2,7 @@
 
 import nxppy
 import time
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 import sqlite3
 import threading
 
@@ -11,6 +11,7 @@ app = Flask(__name__)
 # Variable pour suivre si un exercice est en cours
 exercise_in_progress = False
 current_uid = None
+lock = threading.Lock()  # Verrou pour synchroniser l'accès à l'exercice
 
 def get_db():
     conn = sqlite3.connect('exercises.db')
@@ -55,24 +56,22 @@ def listen_for_badges():
     global exercise_in_progress, current_uid
 
     while True:
-        uid = read_badge()  # Lire le badge NFC pour obtenir l'UID
+        uid = read_badge()
         if uid:
-            if not exercise_in_progress or uid != current_uid:
-                # Nouveau badge ou rescan d'un badge
-                current_uid = uid
-                exercise_in_progress = True
-                print("Exercice commencé pour le badge: {}".format(uid))                # Récupérer ou créer l'exercice
-                exercise = get_or_create_exercise(uid)
-                time.sleep(5)
-            else:
-                with get_db() as db:
-
-                    # Marquer l'exercice comme terminé pour ce badge
-                    db.execute("UPDATE exercises SET end_time = CURRENT_TIMESTAMP WHERE badge_uid = ? AND end_time IS NULL", (current_uid,))
-                    db.commit()
-                    current_uid = None
-                    exercise_in_progress = False
-                    print("Exercice terminé")
+            with lock:  # Verrouiller l'accès concurrent
+                if not exercise_in_progress or uid != current_uid:
+                    current_uid = uid
+                    exercise_in_progress = True
+                    print("Exercice commencé pour le badge:", uid)
+                    exercise = get_or_create_exercise(uid)
+                    time.sleep(5)  # Laisser un peu de temps avant de pouvoir scanner à nouveau
+                else:
+                    with get_db() as db:
+                        db.execute("UPDATE exercises SET end_time = CURRENT_TIMESTAMP WHERE badge_uid = ? AND end_time IS NULL", (current_uid,))
+                        db.commit()
+                        current_uid = None
+                        exercise_in_progress = False
+                        print("Exercice terminé")
 
 @app.route('/repetition', methods=['GET'])
 def add_repetition():
@@ -100,18 +99,69 @@ def add_error():
     return jsonify({"error": "Aucun exercice en cours ou badge non détecté"}), 400
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def home():
-    return """
-    <html>
-        <body>
-            <h1>Page d'Exercices NFC</h1>
-            <form action="/start_exercise" method="post">
-                <button type="submit">Démarrer l'Exercice</button>
-            </form>
-        </body>
-    </html>
-    """
+    if request.method == 'POST':
+        badge_uid = request.form['badge_uid']
+        with get_db() as db:
+            cursor = db.execute("SELECT * FROM exercises WHERE badge_uid = ?", (badge_uid,))
+            exercise = cursor.fetchone()
+        
+        if exercise:
+            return render_template_string("""
+            <html>
+                <body>
+                    <h1>Page d'Exercices NFC</h1>
+                    <h3>Exercice pour le badge {{ badge_uid }}</h3>
+                    <table border="1">
+                        <tr>
+                            <th>ID</th>
+                            <th>Répétitions</th>
+                            <th>Erreurs</th>
+                            <th>Début</th>
+                            <th>Fin</th>
+                        </tr>
+                        <tr>
+                            <td>{{ exercise[0] }}</td>
+                            <td>{{ exercise[2] }}</td>
+                            <td>{{ exercise[3] }}</td>
+                            <td>{{ exercise[4] }}</td>
+                            <td>{{ exercise[5] }}</td>
+                        </tr>
+                    </table>
+                    <br><br>
+                    <form method="post">
+                        <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
+                        <button type="submit">Soumettre</button>
+                    </form>
+                </body>
+            </html>
+            """, badge_uid=badge_uid, exercise=exercise)
+        else:
+            return render_template_string("""
+            <html>
+                <body>
+                    <h1>Page d'Exercices NFC</h1>
+                    <p>Aucun exercice trouvé pour le badge {{ badge_uid }}</p>
+                    <form method="post">
+                        <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
+                        <button type="submit">Soumettre</button>
+                    </form>
+                </body>
+            </html>
+            """, badge_uid=badge_uid)
+    else:
+        return """
+        <html>
+            <body>
+                <h1>Page d'Exercices NFC</h1>
+                <form method="post">
+                    <input type="text" name="badge_uid" placeholder="Numéro de badge" required>
+                    <button type="submit">Soumettre</button>
+                </form>
+            </body>
+        </html>
+        """
 
 # Initialisation de la base de données
 init_db()
