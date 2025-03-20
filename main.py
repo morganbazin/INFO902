@@ -173,7 +173,7 @@ def handle_badge():
         })
     else:
         return jsonify({
-            "error": f"Aucun exercice trouvé pour le badge {badge_uid}"
+            "error": f"Aucun exercice trouvé pour le badge"
         })
 
 
