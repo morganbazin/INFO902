@@ -53,7 +53,7 @@ def envoyer_requetes():
                 requests.get("http://192.168.4.100/erreurmvt", timeout=0.5)
                 requests.get("http://192.168.4.1/erreursquat", timeout=0.5)
             except requests.RequestException as e:
-                print("Erreur lors de l'envoi des requêtes :", e)
+                print("Erreur lors de l'envoi des requêtes : " + str(e))
         threading.Thread(target=requetes, daemon=True).start()
 
 def analyser_posture(landmarks):
@@ -75,7 +75,7 @@ def analyser_posture(landmarks):
         [landmarks[kp.NOSE.value].x, landmarks[kp.NOSE.value].y]
     )
 
-    print(f"Angle du dos actuel : {angle_dos:.2f}")
+    print("Angle du dos actuel : " + str(round(angle_dos, 2)))
 
     dos_droit = dos_est_droit(angle_dos)
 
@@ -106,19 +106,19 @@ def test_image(image):
 
         if exercice_commence(genou_gauche, genou_droit):
             status = analyser_posture(landmarks)
-            texte = f"Dos droit : {status}"
-            couleur = (0,255,0) if status=="True" else (0,0,255)
+            texte = "Dos droit : " + status
+            couleur = (0, 255, 0) if status == "True" else (0, 0, 255)
         else:
             texte = "En attente de flexion"
-            couleur = (255,255,0)
+            couleur = (255, 255, 0)
 
         mp_drawing.draw_landmarks(
             image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-            mp_drawing.DrawingSpec(color=(0,255,255), thickness=2, circle_radius=2),
-            mp_drawing.DrawingSpec(color=(255,255,0), thickness=2, circle_radius=2)
+            mp_drawing.DrawingSpec(color=(0, 255, 255), thickness=2, circle_radius=2),
+            mp_drawing.DrawingSpec(color=(255, 255, 0), thickness=2, circle_radius=2)
         )
 
-        cv2.putText(image, texte, (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1, couleur, 2)
+        cv2.putText(image, texte, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, couleur, 2)
 
     except:
         pass
