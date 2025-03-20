@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import nxppy
 import time
 from flask import Flask, request, jsonify, render_template_string
@@ -15,6 +13,7 @@ lock = threading.Lock()  # Verrou pour synchroniser l'accès à l'exercice
 
 def get_db():
     conn = sqlite3.connect('exercises.db')
+    conn.text_factory = str  # Set text_factory to str to support Unicode
     return conn
 
 def init_db():
@@ -40,6 +39,7 @@ def read_badge():
 
 # Fonction pour démarrer ou récupérer l'exercice
 def get_or_create_exercise(uid):
+    uid = str(uid)  # Ensure the UID is treated as a string
     with get_db() as db:
         cursor = db.execute("SELECT * FROM exercises WHERE badge_uid = ? AND end_time IS NULL", (uid,))
         existing_exercise = cursor.fetchone()
