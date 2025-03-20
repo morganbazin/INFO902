@@ -61,8 +61,7 @@ def listen_for_badges():
                 # Nouveau badge ou rescan d'un badge
                 current_uid = uid
                 exercise_in_progress = True
-                print(f"Exercice commencé pour le badge: {uid}")
-                # Récupérer ou créer l'exercice
+                print("Exercice commencé pour le badge: {}".format(uid))                # Récupérer ou créer l'exercice
                 exercise = get_or_create_exercise(uid)
             time.sleep(1)
             else:
