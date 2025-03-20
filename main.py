@@ -82,6 +82,8 @@ def add_repetition():
         with get_db() as db:
             db.execute("UPDATE exercises SET repetitions = repetitions + 1 WHERE id = ?", (exercise[0],))  # Mettre à jour l'exercice
             db.commit()
+            print("updated repet", current_uid)
+
         return jsonify({"message": "Répétition ajoutée avec succès"}), 200
     return jsonify({"error": "Aucun exercice en cours ou badge non détecté"}), 400
 
@@ -93,6 +95,7 @@ def add_error():
         with get_db() as db:
             db.execute("UPDATE exercises SET errors = errors + 1 WHERE id = ?", (exercise[0],))  # Mettre à jour l'exercice
             db.commit()
+            print("updated erreur mvt", current_uid)
         return jsonify({"message": "Erreur de mouvement ajoutée avec succès"}), 200
     return jsonify({"error": "Aucun exercice en cours ou badge non détecté"}), 400
 
